@@ -1,0 +1,175 @@
+DECLARE @countData int
+DECLARE @nameTable nvarchar(max)
+DECLARE @countTable int
+DECLARE @createdDate_check nvarchar(10)
+
+CREATE TABLE tamp_created_date (
+  created_date date
+)
+
+INSERT INTO tamp_created_date
+  SELECT DISTINCT
+    CONVERT(date, [created_date], 120)
+  FROM [dbo].[PDA_Location_Tracking_Log_Backup]
+
+
+SELECT
+  @countData = COUNT(*)
+FROM tamp_created_date
+SELECT * FROM tamp_created_date
+
+DECLARE @cnt int = 1;
+
+WHILE @cnt < @countData + 1
+BEGIN
+  --GET TABLE NAME 
+  SELECT @nameTable = CONVERT(nvarchar(10), [created_date], 112) FROM 
+  (SELECT ROW_NUMBER() OVER (ORDER BY created_date ASC) AS RowNum,created_date FROM tamp_created_date) sub
+  WHERE RowNum = @cnt
+  
+  SELECT
+    @createdDate_check = CONVERT(nvarchar(10), [created_date], 120)
+  FROM (SELECT ROW_NUMBER() OVER (ORDER BY created_date ASC) AS RowNum,created_date FROM tamp_created_date) sub
+  WHERE RowNum = @cnt
+  
+  SET @nameTable = 'Save_log_' + @nameTable
+
+  --Count Table Duplicate
+  SELECT
+    @countTable = COUNT(*)
+  FROM A2G_Log.sys.tables
+  WHERE name = @nameTable;
+  
+  --IF CHECK TABLE NAME
+  IF @countTable = 0
+  BEGIN
+    DECLARE @tableName nvarchar(max)
+    DECLARE @tablePK nvarchar(max)
+    DECLARE @sqlCreateTable nvarchar(max)
+    DECLARE @sqlInsertTable nvarchar(max)
+    DECLARE @dateCondition varchar(10)
+    DECLARE @dateName varchar(8)
+    DECLARE @sqlDeleteRec nvarchar(max)
+    --variable condition
+
+    --variable feild table
+    DECLARE @tracking_id varchar(30)
+    DECLARE @tracking_type int
+    DECLARE @v_id int
+    DECLARE @reccode varchar(10)
+    DECLARE @status_code varchar(8)
+    DECLARE @latitude varchar(50)
+    DECLARE @longitude varchar(50)
+    DECLARE @satellite int
+    DECLARE @direction int
+    DECLARE @speed int
+    DECLARE @sent_to_mappoint bit
+    DECLARE @error_message varchar(255)
+    DECLARE @created_date datetime
+    DECLARE @updated_date datetime
+    DECLARE @table_Name_tmp nvarchar(50)
+    -- variable feild table
+
+    SET @dateCondition = @createdDate_check
+    SET @dateName = CONVERT(varchar(8), GETDATE(), 112)
+
+    SET @tableName = '[dbo].[' + @nameTable + ']'
+    SET @tablePK = @nameTable
+
+    SET @sqlCreateTable = 'Create Table ' + @tableName +
+    ' (tracking_id varchar(30) not null, tracking_type int not null, v_id int not null, reccode varchar(10)
+		, status_code varchar(8), latitude varchar(50), longitude varchar(50), satellite int, direction int
+		, speed int, sent_to_mappoint bit not null, error_message varchar(255), created_date datetime not null
+		, updated_date datetime not null, CONSTRAINT [PK_' + @tablePK + '] PRIMARY KEY (tracking_id ASC))';
+
+    EXEC (@sqlCreateTable)
+
+    SET @sqlInsertTable = 'Insert Into ' + @tableName + ' Select tracking_id,tracking_type,v_id,reccode,status_code
+		,latitude,longitude,satellite,direction,speed,sent_to_mappoint,error_message,created_date,updated_date 
+		FROM PDA_Location_Tracking_Log_Backup 
+		Where CONVERT(nvarchar(10),[created_date],120) =''' + @dateCondition + '''';
+ 
+    EXEC (@sqlInsertTable)
+
+    SET @sqlDeleteRec = 'DELETE FROM PDA_Location_Tracking_Log_Backup WHERE CONVERT(nvarchar(10),[created_date],120) =''' + @createdDate_check + '''';
+    EXEC (@sqlDeleteRec)
+
+  END
+  ELSE
+  BEGIN
+
+    DECLARE @cnt_record int
+    DECLARE @tracking_id_var varchar(30)
+    DECLARE @cnt_i int = 1;
+	
+    CREATE TABLE tamp_tracking_id (
+      tracking_id varchar(30),
+      created_date varchar(10)
+    )
+
+    INSERT INTO tamp_tracking_id
+      SELECT
+        tracking_id , CONVERT(nvarchar(10), [created_date], 120)
+      FROM [dbo].[PDA_Location_Tracking_Log_Backup]
+      WHERE CONVERT(nvarchar(10), [created_date], 120) = @createdDate_check
+
+    SELECT
+      @cnt_record = COUNT(*)
+    FROM tamp_tracking_id
+
+    WHILE @cnt_i < @cnt_record +1
+    BEGIN
+
+      DECLARE @sqlInsert nvarchar(max)
+      DECLARE @sqlDelete nvarchar(max)
+
+      SELECT
+        @tracking_id_var = tracking_id
+      FROM (SELECT
+        ROW_NUMBER() OVER (ORDER BY tracking_id ASC) AS RowNum,
+        tracking_id
+      FROM tamp_tracking_id) sub
+      WHERE RowNum = @cnt_i
+
+      DECLARE @sqlCommand nvarchar(1000)
+      DECLARE @dateCon nvarchar(10)
+      DECLARE @counts int
+      SET @sqlCommand = 'SELECT @cnt=COUNT(*) FROM ' + @nameTable + ' WHERE  CONVERT(nvarchar(10),[created_date],120) = ' + @createdDate_check + ''' AND tracking_id=''' + @tracking_id_var + '''';
+      EXECUTE sp_executesql @sqlCommand,
+                            N'@cnt int OUTPUT',
+                            @cnt = @counts OUTPUT
+      SELECT @counts
+
+      IF @counts = 0
+      BEGIN
+
+        SET @sqlInsert = 'INSERT INTO ' + @nameTable + ' SELECT tracking_id,tracking_type,v_id,reccode,status_code
+			,latitude,longitude,satellite,direction,speed,sent_to_mappoint,error_message,created_date,updated_date 
+			FROM PDA_Location_Tracking_Log_Backup 
+			WHERE CONVERT(nvarchar(10),[created_date],120) =''' + @createdDate_check + ' AND tracking_id=''' + @tracking_id_var + '''';
+        EXEC (@sqlInsert)
+
+        SET @sqlDelete = 'DELETE FROM PDA_Location_Tracking_Log_Backup WHERE CONVERT(nvarchar(10),[created_date],120) =''' + @createdDate_check + ''' AND tracking_id=''' + @tracking_id_var + '''';
+        EXEC (@sqlDelete)
+
+      END
+      ELSE
+      BEGIN
+        SET @sqlDelete = 'DELETE FROM PDA_Location_Tracking_Log_Backup WHERE CONVERT(nvarchar(10),[created_date],120) = ''' + @createdDate_check + ''' AND tracking_id = ''' + @tracking_id_var + '''';
+        EXEC (@sqlDelete)
+
+      END
+	  
+      SET @cnt_i = @cnt_i + 1;
+
+    END
+
+    DROP TABLE tamp_tracking_id
+
+  END
+
+  SET @cnt = @cnt + 1;
+
+END
+
+DROP TABLE tamp_created_date
